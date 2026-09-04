@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Plugin\RedirectManager\Backend\Models\RedirectIssue;
 use Plugin\RedirectManager\Backend\Models\RedirectRule;
+use Plugin\RedirectManager\Backend\Support\CacheScope;
 
 /**
  * Decide where an unresolved path should go.
@@ -34,6 +35,17 @@ class RedirectMatcher
     private const CACHE_KEY = 'redirect-manager:pattern-rules';
 
     private const CACHE_TTL = 300;
+
+    /**
+     * The key the pattern set is cached under.
+     *
+     * Scoped to the database it was read from — see {@see CacheScope}. A rule set means nothing
+     * in another schema, and a flat key is shared by every schema pointed at one cache store.
+     */
+    private static function cacheKey(): string
+    {
+        return CacheScope::key(self::CACHE_KEY);
+    }
 
     /**
      * Resolve a path to a destination, following and collapsing any chain.
@@ -65,6 +77,7 @@ class RedirectMatcher
         $first       = null;
         $destination = null;
         $used        = 0;
+        $usedIds     = [];
         $walked      = [$path];
         $current     = $path;
 
@@ -79,6 +92,7 @@ class RedirectMatcher
 
             $first ??= $rule;
             $used++;
+            $usedIds[] = (int) $rule->id;
 
             // The stored destination, not `target()` — see `RedirectRule::resolvedTo()`. The
             // browser-facing form is absolute for every internal path, which would make the
@@ -89,7 +103,7 @@ class RedirectMatcher
             // not knowable from here, and following it would mean fetching someone else's URL
             // on the 404 path.
             if (RedirectRule::isAbsoluteUrl($destination)) {
-                return $this->result($first, $destination, $walked, $used);
+                return $this->result($first, $destination, $walked, $used, $usedIds);
             }
 
             $next = RedirectRule::normalisePath(
@@ -104,6 +118,7 @@ class RedirectMatcher
                     rule: $first,
                     walked: array_merge($walked, [$next]),
                     problem: RedirectIssue::TYPE_LOOP,
+                    usedRuleIds: $usedIds,
                 );
             }
 
@@ -123,7 +138,7 @@ class RedirectMatcher
         // Running out of hops is itself the fault worth reporting. The last path reached is
         // still the best destination available and is closer than where the visitor started,
         // so it is served rather than dropped.
-        return $this->result($first, $destination, $walked, $used, $used >= self::MAX_HOPS);
+        return $this->result($first, $destination, $walked, $used, $usedIds, $used >= self::MAX_HOPS);
     }
 
     /**
@@ -139,6 +154,7 @@ class RedirectMatcher
         string $destination,
         array $walked,
         int $used,
+        array $usedIds = [],
         bool $exhausted = false,
     ): RedirectMatch {
         return new RedirectMatch(
@@ -147,6 +163,8 @@ class RedirectMatcher
             code: $first->code,
             walked: $walked,
             problem: ($used > 1 || $exhausted) ? RedirectIssue::TYPE_CHAIN : null,
+            destination: $destination,
+            usedRuleIds: $usedIds,
         );
     }
 
@@ -342,7 +360,7 @@ class RedirectMatcher
     private function patternRules(): Collection
     {
         $rows = Cache::remember(
-            self::CACHE_KEY,
+            self::cacheKey(),
             self::CACHE_TTL,
             fn () => RedirectRule::query()
                 ->active()
@@ -357,9 +375,27 @@ class RedirectMatcher
         return RedirectRule::hydrate(is_array($rows) ? $rows : []);
     }
 
+    /**
+     * Whether a path now lands somewhere.
+     *
+     * The question the Broken Links screen asks about every entry on it, and the reason it is
+     * asked *here*: the screen used to answer it with a lookup of its own — an active exact
+     * rule whose `from_path` equalled the path — which is true of one of the three kinds of
+     * rule this class knows about. A prefix rule that moved a whole branch, or a pattern that
+     * caught a family of old URLs, fixed the visitor's experience and left every entry it
+     * covered sitting on the open list saying nothing fixes it.
+     *
+     * A loop is deliberately not a landing: `hasTarget()` is false for one, and an entry whose
+     * rules point in a circle is still a job to do.
+     */
+    public function resolves(string $path, string $queryString = ''): bool
+    {
+        return $this->resolve($path, $queryString)->hasTarget();
+    }
+
     /** Drop the cached pattern set. Called whenever a rule is written. */
     public static function forget(): void
     {
-        Cache::forget(self::CACHE_KEY);
+        Cache::forget(self::cacheKey());
     }
 }

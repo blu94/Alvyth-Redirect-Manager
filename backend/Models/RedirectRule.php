@@ -43,6 +43,18 @@ class RedirectRule extends Model
 
     public const STATUS_ACTIVE = 'active';
 
+    public const STATUS_INACTIVE = 'inactive';
+
+    /**
+     * The two a rule can be in.
+     *
+     * Named as a set because more than the form needs it: a CSV arriving from another tool
+     * calls this column whatever that tool called it, and `scopeActive()` matches the literal
+     * string — so a value outside this set stores a rule that lists, edits and redirects
+     * nobody.
+     */
+    public const STATUSES = [self::STATUS_ACTIVE, self::STATUS_INACTIVE];
+
     /**
      * 307 and 308 are here and not in the module this replaces because 301 and 302 are
      * defined to allow a client to change the method: a browser turns the redirected POST
@@ -219,18 +231,32 @@ class RedirectRule extends Model
     }
 
     /**
-     * Count a use of this rule.
+     * Count a use of these rules.
      *
      * A bare UPDATE rather than a model save: this fires on every hit to a moved URL, and a
      * query-builder update is one statement with no hydration, no model events and no
      * `updated_at` churn. Failure is swallowed — a visitor's redirect must not depend on the
      * statistics behind it.
+     *
+     * **Every rule the walk used, not just the first.** A chain is collapsed so the visitor
+     * arrives in one hop, but all of its rules did the work — and counting only the one that
+     * matched the request left the rules in the middle reporting zero hits. The Overview offers
+     * those up under "Rules never used", inviting the operator to delete the very rule that
+     * makes the chain resolve. Still one statement, because the ids go in as a set.
+     *
+     * @param  int|array<int,int>  $ids
      */
-    public static function touchHit(int $id): void
+    public static function touchHit(int|array $ids): void
     {
+        $ids = array_values(array_unique(array_filter((array) $ids)));
+
+        if ($ids === []) {
+            return;
+        }
+
         try {
             DB::table((new static)->getTable())
-                ->where('id', $id)
+                ->whereIn('id', $ids)
                 ->update([
                     'hits'        => DB::raw('hits + 1'),
                     'last_hit_at' => now(),
@@ -271,12 +297,29 @@ class RedirectRule extends Model
         return self::normaliseTarget($to);
     }
 
-    /** A stored destination as something the browser can follow. */
-    public static function toUrl(string $destination): string
+    /**
+     * A stored destination as something the browser can follow.
+     *
+     * `$locale` is the locale segment the request arrived under, and it is put back on the
+     * front of an internal destination. Core strips it before asking — a rule is written about
+     * `laman-lama`, not about each locale's spelling of the URL it sits under — so without this
+     * a Malay visitor following an old link was moved onto the default locale as a side effect
+     * of the redirect.
+     *
+     * An absolute destination is returned verbatim, locale or not: what another host does with
+     * its own URLs is not this application's to decide.
+     */
+    public static function toUrl(string $destination, ?string $locale = null): string
     {
         $destination = self::normaliseTarget($destination);
 
-        return self::isAbsoluteUrl($destination) ? $destination : url('/' . $destination);
+        if (self::isAbsoluteUrl($destination)) {
+            return $destination;
+        }
+
+        $locale = trim((string) $locale, '/');
+
+        return url('/' . ($locale === '' ? $destination : trim($locale . '/' . $destination, '/')));
     }
 
     /**
@@ -284,8 +327,8 @@ class RedirectRule extends Model
      *
      * @param  array<int,string>  $captures
      */
-    public function target(array $captures = []): string
+    public function target(array $captures = [], ?string $locale = null): string
     {
-        return self::toUrl($this->resolvedTo($captures));
+        return self::toUrl($this->resolvedTo($captures), $locale);
     }
 }

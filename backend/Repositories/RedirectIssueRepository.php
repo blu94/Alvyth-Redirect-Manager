@@ -6,7 +6,6 @@ use Illuminate\Support\Carbon;
 use Plugin\RedirectManager\Backend\Models\RedirectIssue;
 use Plugin\RedirectManager\Backend\Models\RedirectSetting;
 use Plugin\RedirectManager\Backend\Services\PathSuggester;
-use RuntimeException;
 
 /**
  * Broken links — the recorded problems, and the actions that clear them.
@@ -50,9 +49,7 @@ class RedirectIssueRepository
      */
     public function create(array $data)
     {
-        throw new RuntimeException(
-            'Broken links are recorded when a visitor hits a missing page. They cannot be added by hand.'
-        );
+        abort(422, 'Broken links are recorded when a visitor hits a missing page. They cannot be added by hand.');
     }
 
     /**
@@ -95,18 +92,20 @@ class RedirectIssueRepository
     }
 
     /**
-     * Only `resolved` moves. Everything else on the row is evidence of what happened, and an
-     * editable hit count is a hit count nobody can trust.
+     * Refused, for the same reason `create()` is — and because it could never do anything.
+     *
+     * The module is `readonly` and declares no `form` block, so `HandlesModuleSchema` derives no
+     * rules from it and `validated()` is always empty. This read `$data['resolved'] ?? $issue
+     * ->resolved`, which meant it wrote the value the row already had: `PUT` answered **200**,
+     * having changed nothing, every time. A caller could not tell that from success.
+     *
+     * The action that does work is named, because a refusal that does not say what to do
+     * instead is only half an answer.
      */
     public function update($id, array $data)
     {
-        $issue = RedirectIssue::findOrFail($id);
-
-        $issue->update(['resolved' => (bool) ($data['resolved'] ?? $issue->resolved)]);
-
-        $this->log($issue, 'updated');
-
-        return $issue;
+        abort(422, 'A broken link is evidence of what happened and is not edited. Use the '
+            . '"Dealt with" action to change whether it is still open.');
     }
 
     public function delete($id)
@@ -122,6 +121,34 @@ class RedirectIssueRepository
         $this->log($issue, 'deleted');
 
         return $issue->delete();
+    }
+
+    /**
+     * Refuse an action the operator does not hold the permission for.
+     *
+     * **The verb the action IS, not the one its transport implies.** A plugin registers no
+     * routes, so every button on this screen arrives as `POST .../page/{slug}` — and a POST
+     * maps to `create`. That admitted **Prune history**, which deletes recorded 404s in bulk,
+     * to anyone holding `redirect_manager.create`, while refusing it to a role granted
+     * `redirect_manager.delete` and nothing else. The permission matrix read backwards.
+     *
+     * `module.json` now names each page's real verb and `GateModuleResource` believes it, so
+     * this second check agrees with the first rather than narrowing it. It is here as well
+     * because the middleware guards one route and this guards the action: a package installed
+     * on a core that predates the declared verb still fails closed, and so does any future
+     * caller that reaches the repository another way.
+     *
+     * Mirrors the middleware's own test — the `super_admin` role, or the named permission.
+     */
+    private function authorise(string $verb): void
+    {
+        $user = auth()->user();
+
+        if ($user && ($user->hasRole('super_admin') || $user->can("redirect_manager.{$verb}"))) {
+            return;
+        }
+
+        abort(403, "This needs the redirect_manager.{$verb} permission.");
     }
 
     /**
@@ -175,6 +202,8 @@ class RedirectIssueRepository
     /** @param  array<string,mixed>  $data */
     private function setResolved(array $data, bool $resolved): array
     {
+        $this->authorise('update');
+
         $issue = RedirectIssue::find($data['id'] ?? null);
 
         if ($issue === null) {
@@ -202,6 +231,8 @@ class RedirectIssueRepository
      */
     private function prune(): array
     {
+        $this->authorise('delete');
+
         $days = RedirectSetting::current()->retention_days;
 
         if ($days === null) {

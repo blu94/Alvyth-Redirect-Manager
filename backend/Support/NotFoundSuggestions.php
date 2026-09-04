@@ -2,6 +2,7 @@
 
 namespace Plugin\RedirectManager\Backend\Support;
 
+use App\Repositories\Setting\Localization\LocalizationInterface;
 use Plugin\RedirectManager\Backend\Models\RedirectSetting;
 use Plugin\RedirectManager\Backend\Services\PathSuggester;
 
@@ -39,7 +40,7 @@ class NotFoundSuggestions
             }
 
             return app(PathSuggester::class)->suggest(
-                $path ?? request()->path(),
+                self::withoutLocale($path ?? request()->path()),
                 $limit
             );
         } catch (\Throwable $e) {
@@ -47,5 +48,39 @@ class NotFoundSuggestions
 
             return [];
         }
+    }
+
+    /**
+     * Drop a leading active-locale segment from the path being scored.
+     *
+     * A theme hands this slot `request()->path()`, which is the address as asked for —
+     * `ms/laman-lama` — while every candidate is a bare slug. Scored against each other the
+     * locale is two characters of pure difference, and on a short path that is enough to push a
+     * real near-miss under the threshold: a multilingual shop got worse suggestions than a
+     * monolingual one for the same content.
+     *
+     * Only a segment the store actually serves is stripped, read from the same localisation
+     * settings `ThemeController` strips by. A page whose slug genuinely begins with those
+     * letters keeps them, because the test is the whole segment and not a prefix.
+     */
+    private static function withoutLocale(string $path): string
+    {
+        $path     = ltrim($path, '/');
+        $segments = explode('/', $path);
+
+        if (count($segments) < 2) {
+            return $path;
+        }
+
+        $settings = app(LocalizationInterface::class)->getSettings();
+
+        $active = collect($settings['locales'] ?? [])
+            ->filter(fn ($locale) => $locale['active'] ?? true)
+            ->pluck('code')
+            ->all();
+
+        return in_array($segments[0], $active, true)
+            ? implode('/', array_slice($segments, 1))
+            : $path;
     }
 }

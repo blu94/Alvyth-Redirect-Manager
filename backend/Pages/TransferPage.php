@@ -36,6 +36,86 @@ class TransferPage
     private const MAX_ERRORS = 20;
 
     /**
+     * The most rules read from one paste, and the most written into one export.
+     *
+     * Both directions run inside a single request, and the import runs inside the transaction
+     * `GenericModuleController::savePageData()` opens — so an unbounded file is a request that
+     * times out halfway with no way for the operator to tell which half applied. The export had
+     * the same shape from the other end: the whole table was assembled into one string and
+     * returned inside a JSON response every time the screen was opened, wanted or not.
+     *
+     * Five thousand is far past a migration's worth of rules and small enough to stay a form
+     * submit. A bound stated on the screen is a bound an operator can work with; a timeout is
+     * not.
+     */
+    private const MAX_ROWS = 5000;
+
+    /**
+     * What another tool calls a column.
+     *
+     * A migration arrives as somebody else's export, and the origin column is where the whole
+     * file turns on: if it is not recognised the first line is read as data, every row comes out
+     * without a destination, and the operator is told once per line that a rule needs somewhere
+     * to send the visitor — which names the symptom furthest from the cause.
+     */
+    private const COLUMN_NAMES = [
+        'from'         => 'from_path',
+        'source'       => 'from_path',
+        'old'          => 'from_path',
+        'old_url'      => 'from_path',
+        'url'          => 'from_path',
+        'redirect_from' => 'from_path',
+        'to'           => 'to_path',
+        'target'       => 'to_path',
+        'destination'  => 'to_path',
+        'new'          => 'to_path',
+        'new_url'      => 'to_path',
+        'redirect_to'  => 'to_path',
+        'type'         => 'match_type',
+        'match'        => 'match_type',
+        'query'        => 'query_match',
+    ];
+
+    /**
+     * Every column that may only hold one of a fixed set, and the set.
+     *
+     * One list rather than a check per column, because the asymmetry is what let a defect
+     * through: `match_type` and `code` were both validated and `status` was not, so a file
+     * calling the column `enabled` — which is what Redirection and several WordPress exporters
+     * call it — imported cleanly, reported "1 created", and stored a rule that `scopeActive()`
+     * never matches. It existed, it listed, it edited, and it redirected nobody.
+     *
+     * A fourth enumerated column cannot now be added without its check.
+     */
+    private const ENUMERATED = [
+        'match_type' => RedirectRule::MATCH_TYPES,
+        'status'     => RedirectRule::STATUSES,
+        'code'       => RedirectRule::CODES,
+    ];
+
+    /**
+     * What another tool's word for a value means here.
+     *
+     * The same courtesy `header()` extends to column names, extended to the values in them: a
+     * migration arrives as somebody else's export, and refusing a whole file over the word
+     * "enabled" helps nobody.
+     */
+    private const SYNONYMS = [
+        'status' => [
+            'enabled'  => RedirectRule::STATUS_ACTIVE,
+            'on'       => RedirectRule::STATUS_ACTIVE,
+            'yes'      => RedirectRule::STATUS_ACTIVE,
+            '1'        => RedirectRule::STATUS_ACTIVE,
+            'true'     => RedirectRule::STATUS_ACTIVE,
+            'disabled' => RedirectRule::STATUS_INACTIVE,
+            'off'      => RedirectRule::STATUS_INACTIVE,
+            'no'       => RedirectRule::STATUS_INACTIVE,
+            '0'        => RedirectRule::STATUS_INACTIVE,
+            'false'    => RedirectRule::STATUS_INACTIVE,
+        ],
+    ];
+
+    /**
      * The column reference shown under the paste box.
      *
      * On the screen rather than in a manual, because the moment an operator needs it is the
@@ -50,16 +130,24 @@ class TransferPage
         . 'dates stay empty, which means the rule always applies. The header row is optional — '
         . 'leave it off and the columns are read in the order shown in the box above. A rule you '
         . 'already have is updated rather than added a second time, so if something goes wrong you '
-        . 'can correct your file and paste the whole thing again.';
+        . 'can correct your file and paste the whole thing again. Up to '
+        . self::MAX_ROWS . ' rules in one paste; split a larger file and paste it in parts.';
 
     /** @return array<string,mixed> */
     public function data(): array
     {
+        $total = RedirectRule::query()->count();
+
         return [
             'export_csv'  => $this->export(),
             'import_csv'  => '',
             'import_help' => self::COLUMN_HELP,
-            'rules_total' => RedirectRule::query()->count(),
+            'rules_total' => $total,
+            'export_note' => $total > self::MAX_ROWS
+                ? 'Showing the first ' . self::MAX_ROWS . ' of ' . $total . ' rules. This box is '
+                    . 'built and sent every time the screen opens, so it is capped — the rest are '
+                    . 'still there and still working.'
+                : $total . ' ' . ($total === 1 ? 'rule' : 'rules') . ', all of them.',
         ];
     }
 
@@ -80,9 +168,9 @@ class TransferPage
         // spreadsheet writes and no other reader expects.
         fputcsv($handle, self::COLUMNS, ',', '"', '');
 
-        RedirectRule::query()->orderBy('id')->chunk(500, function ($rules) use ($handle) {
+        RedirectRule::query()->orderBy('id')->limit(self::MAX_ROWS)->chunk(500, function ($rules) use ($handle) {
             foreach ($rules as $rule) {
-                fputcsv($handle, [
+                fputcsv($handle, array_map([self::class, 'escapeCell'], [
                     $rule->match_type,
                     $rule->from_path,
                     $rule->query_match,
@@ -99,7 +187,7 @@ class TransferPage
                     $rule->status,
                     $rule->starts_at?->toDateTimeString(),
                     $rule->ends_at?->toDateTimeString(),
-                ], ',', '"', '');
+                ]), ',', '"', '');
             }
         });
 
@@ -108,6 +196,55 @@ class TransferPage
         fclose($handle);
 
         return $csv;
+    }
+
+    /**
+     * The characters a spreadsheet reads as the start of a formula rather than as text.
+     *
+     * Tab and carriage return are in the set because Excel strips leading whitespace before
+     * deciding, so a cell beginning with one of them and then `=` is a formula too.
+     */
+    private const FORMULA_LEADERS = ['=', '+', '-', '@', "	", "
+"];
+
+    /**
+     * Make one cell safe to open in a spreadsheet.
+     *
+     * This screen tells the operator to paste the export into a text editor and save it with a
+     * `.csv` ending, which is an instruction to open it in Excel, LibreOffice or Sheets — and
+     * all three execute a cell beginning `=`, `+`, `-` or `@` as a formula. A rule's `from_path`
+     * is not always something the operator typed: Broken Links records the path of every 404 a
+     * visitor asks for and offers it as the origin of a new rule, so a stranger can choose the
+     * first character of a cell that later lands in somebody's spreadsheet.
+     *
+     * A single quote is the escape every spreadsheet understands: it is consumed on open and
+     * the rest is shown as text. `unescapeCell()` takes it back off, so the file this package
+     * writes is still the file this package reads.
+     */
+    private static function escapeCell(mixed $value): string
+    {
+        $value = (string) $value;
+
+        return $value !== '' && in_array($value[0], self::FORMULA_LEADERS, true)
+            ? "'" . $value
+            : $value;
+    }
+
+    /**
+     * Undo `escapeCell()`, and nothing else.
+     *
+     * **Only when what follows is a character that needed escaping.** A leading quote is
+     * otherwise left alone, because a path may legitimately start with one and stripping it
+     * would corrupt a value on every round trip. The narrow rule is what keeps `-5` — an
+     * ordinary negative priority, exported as `'-5` — importing back as the number it was.
+     */
+    private static function unescapeCell(string $value): string
+    {
+        return strlen($value) > 1
+            && $value[0] === "'"
+            && in_array($value[1], self::FORMULA_LEADERS, true)
+                ? substr($value, 1)
+                : $value;
     }
 
     /**
@@ -151,6 +288,19 @@ class TransferPage
 
         if ($header !== null) {
             array_shift($rows);
+        }
+
+        $overflow = [];
+
+        if (count($rows) > self::MAX_ROWS) {
+            $overflow = [
+                'This paste holds ' . count($rows) . ' rules and ' . self::MAX_ROWS
+                . ' is the most that can be imported at once, so the rest were not read. '
+                . 'Split the file and paste it in parts — a rule you already have is updated '
+                . 'rather than added again, so an overlap between the parts is harmless.',
+            ];
+
+            $rows = array_slice($rows, 0, self::MAX_ROWS);
         }
 
         $created = $updated = $skipped = 0;
@@ -206,6 +356,22 @@ class TransferPage
             }
         }
 
+        // Nothing landed and no header was recognised, so the first line was read as data and
+        // every row after it was read one column out. Saying that once beats saying "a rule
+        // needs somewhere to send the visitor" on every line — which is true, and is the
+        // symptom furthest from the cause.
+        if ($created === 0 && $updated === 0 && $skipped > 0 && $header === null) {
+            $errors = [
+                'None of these lines could be read. If the first line names your columns, '
+                . 'rename the one holding the old address to "from" so it is recognised as a '
+                . 'header — it was read as a rule. If your file has no header, put the columns '
+                . 'in this order: ' . implode(', ', self::COLUMNS) . '.',
+            ];
+        }
+
+        // The overflow notice first: it explains the shape of everything under it.
+        $errors = array_merge($overflow, $errors);
+
         return compact('created', 'updated', 'skipped', 'errors');
     }
 
@@ -234,7 +400,10 @@ class TransferPage
                 continue;
             }
 
-            $rows[] = array_map(fn ($v) => trim((string) $v), $row);
+            $rows[] = array_map(
+                fn ($v) => self::unescapeCell(trim((string) $v)),
+                $row
+            );
         }
 
         fclose($handle);
@@ -255,19 +424,13 @@ class TransferPage
     private function header(array $row): ?array
     {
         $normalised = array_map(fn ($v) => strtolower(str_replace([' ', '-'], '_', $v)), $row);
+        $named      = array_map(fn ($v) => self::COLUMN_NAMES[$v] ?? $v, $normalised);
 
-        if (! in_array('from_path', $normalised, true) && ! in_array('from', $normalised, true)) {
+        if (! in_array('from_path', $named, true)) {
             return null;
         }
 
-        // Accept the short spellings a hand-made sheet tends to use.
-        return array_map(fn ($v) => match ($v) {
-            'from'  => 'from_path',
-            'to'    => 'to_path',
-            'type'  => 'match_type',
-            'query' => 'query_match',
-            default => $v,
-        }, $normalised);
+        return array_map(fn ($v) => self::COLUMN_NAMES[$v] ?? $v, $normalised);
     }
 
     /**
@@ -287,6 +450,12 @@ class TransferPage
 
         $values['match_type'] = strtolower($values['match_type']) ?: RedirectRule::MATCH_EXACT;
         $values['status']     = strtolower($values['status']);
+
+        foreach (self::SYNONYMS as $column => $words) {
+            if (isset($words[$values[$column]])) {
+                $values[$column] = $words[$values[$column]];
+            }
+        }
 
         return $values;
     }
@@ -308,14 +477,18 @@ class TransferPage
             return 'a rule needs a path, or a query to match on when the path is your front page.';
         }
 
-        if (! in_array($values['match_type'], RedirectRule::MATCH_TYPES, true)) {
-            return "\"{$values['match_type']}\" is not a match type. Use "
-                . implode(', ', RedirectRule::MATCH_TYPES) . '.';
-        }
+        foreach (self::ENUMERATED as $column => $allowed) {
+            // Empty means "use the default", which every one of these columns has.
+            if ($values[$column] === '') {
+                continue;
+            }
 
-        if ($values['code'] !== '' && ! in_array((int) $values['code'], RedirectRule::CODES, true)) {
-            return "\"{$values['code']}\" is not a redirect code. Use "
-                . implode(', ', RedirectRule::CODES) . '.';
+            // Compared as strings so one loop can serve a column of words and a column of
+            // numbers without either being cast into the other's shape.
+            if (! in_array($values[$column], array_map('strval', $allowed), true)) {
+                return "\"{$values[$column]}\" is not a valid " . str_replace('_', ' ', $column)
+                    . '. Use ' . implode(', ', $allowed) . '.';
+            }
         }
 
         if ($values['match_type'] === RedirectRule::MATCH_REGEX

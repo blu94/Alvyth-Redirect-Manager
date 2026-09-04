@@ -38,6 +38,12 @@
       "ui": { "type": "row", "dense": false },
       "elements": [
         {
+          "ui": { "type": "field", "cols": 12, "valueClass": "text-body-2" },
+          "key": "export_note",
+          "type": "display",
+          "label": "What is in the box below"
+        },
+        {
           "ui": { "type": "field", "cols": 12 },
           "key": "export_csv",
           "type": "textarea",

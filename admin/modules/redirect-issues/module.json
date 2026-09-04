@@ -7,6 +7,11 @@
   "icon": "tabler-link-off",
   "api": "/admin/modules/redirect-issues",
   "readonly": true,
+  "pages": {
+    "prune": { "verb": "delete" },
+    "resolve": { "verb": "update" },
+    "reopen": { "verb": "update" }
+  },
   "table": { "$ref": "index.json" },
   "view": { "$ref": "view.json" }
 }

@@ -47,6 +47,14 @@ class ResolveRedirect
 
     private function handle(PathNotResolved $event): void
     {
+        // Another plugin has already offered a destination, and core takes the first offer. So
+        // there is no answer left to give — and, more to the point, no miss to record: writing
+        // one here would put a path that redirects perfectly well on the Broken Links screen as
+        // a dead end, which is evidence of something that did not happen.
+        if ($event->handled()) {
+            return;
+        }
+
         $queryString = http_build_query($event->query);
         $match       = $this->matcher->resolve($event->path, $queryString);
 
@@ -63,9 +71,18 @@ class ResolveRedirect
         }
 
         if ($match->hasTarget()) {
-            $event->redirectTo($match->target, $match->code);
+            // Put the visitor back on their own locale. Core strips the segment before asking
+            // — a rule is written about `laman-lama`, not about each locale's spelling of the
+            // URL above it — so without this a Malay visitor following an old link lands on the
+            // English site as a side effect of the redirect. An off-site destination is left
+            // exactly as the operator wrote it: another host's locales are not ours to guess.
+            $target = $match->isOffsite()
+                ? $match->target
+                : RedirectRule::toUrl((string) $match->destination, $event->locale);
 
-            RedirectRule::touchHit($match->rule->id);
+            $event->redirectTo($target, $match->code);
+
+            RedirectRule::touchHit($match->usedRuleIds ?: [$match->rule->id]);
 
             // A chain still redirects — the visitor is sent to the end of it in one hop — but
             // the operator is told, because only they can collapse the rules that caused it.
@@ -100,17 +117,27 @@ class ResolveRedirect
 
         $path = RedirectRule::normalisePath($event->path);
 
-        if ($path === '' || $settings->ignores($path)) {
+        if ($settings->ignores($path)) {
             return;
         }
 
-        $this->recorder->record(RedirectIssue::TYPE_NOT_FOUND, $path, [
+        // **An empty path is not a reason to drop this.** It is the site root, and core only
+        // asks about the root when the request carries a query — which is precisely the
+        // address this package raised its core floor to serve, `/?p=999`. The guard that used
+        // to sit here meant the one case query matching exists for produced no evidence at all.
+        // The recorder refuses a genuinely empty address, path and query both.
+        //
+        // The query travels as a column rather than inside `context`, because it is half of
+        // what identifies the problem: `/?p=123` and `/?p=456` are two different articles.
+        $this->recorder->record(
+            RedirectIssue::TYPE_NOT_FOUND,
+            $path,
             // Truncated because it is attacker-controlled input heading for a `string`
             // column. An over-long value would otherwise throw and, in a 404 handler, turn a
             // missing page into a 500.
-            'referrer' => $this->trim($event->referrer),
-            'query'    => $queryString === '' ? null : mb_substr($queryString, 0, 255),
-        ]);
+            ['referrer' => $this->trim($event->referrer)],
+            $queryString
+        );
     }
 
     private function trim(?string $referrer): ?string

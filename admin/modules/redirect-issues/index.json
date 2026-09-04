@@ -60,6 +60,7 @@
   "elements": [
     { "ui": { "type": "display" }, "label": "ID", "key": "id", "sortable": true, "width": "60px" },
     { "ui": { "type": "display" }, "label": "Path", "key": "path", "sortable": true, "searchable": true, "ellipsis": true },
+    { "ui": { "type": "display" }, "label": "Query", "key": "query", "sortable": false, "searchable": true, "ellipsis": true },
     { "ui": { "type": "display" }, "label": "Problem", "key": "kind", "sortable": false, "align": "center", "width": "120px", "type": "chip" },
     { "ui": { "type": "display" }, "label": "Referrer", "key": "referrer", "sortable": false, "ellipsis": true },
     { "ui": { "type": "display" }, "label": "Hits", "key": "hits", "sortable": true, "align": "center", "width": "90px" },
@@ -83,7 +84,7 @@
         "label": "Redirect",
         "tooltip": "Create a redirect for this path",
         "action": "navigate",
-        "to": "/module/redirect-rules/create?from_path={path}"
+        "to": "/module/redirect-rules/create?from_path={path}&query_match={query}"
       },
       {
         "key": "resolve",

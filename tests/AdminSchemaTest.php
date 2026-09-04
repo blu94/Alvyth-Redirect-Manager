@@ -94,4 +94,53 @@ class AdminSchemaTest extends TestCase
             'The summary column must name the row field, or the table falls back to `title` and shows nothing.'
         );
     }
+
+    /**
+     * The storefront slot must never call its own class without checking it is there.
+     *
+     * A static assertion because the failure it guards cannot be reproduced from inside a test:
+     * the class is loadable here by definition. What it pins is the shape of the template, and
+     * that is worth pinning, because the guard looks removable and is not.
+     *
+     * The failure it prevents was live on this project's dev storefront: every 404 answering
+     * **500** with `Class "Plugin\\RedirectManager\\Backend\\Support\\NotFoundSuggestions" not found`. Two different things decide whether the
+     * slot renders and whether its code can load. The view namespace comes from
+     * `active-{database}.json`, which core scopes per database; the class comes from an
+     * autoloader reading a cached index under a key that is not scoped. A cache written by a
+     * process pointed at another database leaves the template registered and the class absent —
+     * and a plugin whose whole job is making missing pages work took every missing page down.
+     *
+     * `NotFoundSuggestions::for()` catches everything it can and none of it helps: the Error is
+     * thrown resolving the class, before any of this package's code runs.
+     */
+    #[Test]
+    public function the_storefront_slot_guards_the_class_it_calls(): void
+    {
+        $blade = file_get_contents(
+            dirname(__DIR__) . '/frontend/blade/slots/not-found.blade.php'
+        );
+
+        // The prose above the code explains the guard and names the call, so searching the
+        // whole file finds both in the wrong order. Only the template's code can be asserted on.
+        $code = preg_replace('/\{\{--.*?--\}\}/s', '', $blade);
+
+        $this->assertStringContainsString(
+            'class_exists(',
+            $code,
+            'The slot calls into the package from a template. Without a guard, a moment when the '
+            . 'view namespace is registered and the autoloader is not turns every 404 into a 500.'
+        );
+
+        // The call itself must sit on the true side of that guard, not merely somewhere in the
+        // file — a guard that does not gate the call is decoration.
+        $guardAt = strpos($code, 'class_exists(');
+        $callAt  = strpos($code, 'NotFoundSuggestions::for(');
+
+        $this->assertNotFalse($callAt, 'The slot still has to call the suggester.');
+        $this->assertLessThan(
+            $callAt,
+            $guardAt,
+            'The class check has to come before the call it protects.'
+        );
+    }
 }

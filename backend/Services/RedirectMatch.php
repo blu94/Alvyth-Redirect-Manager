@@ -20,11 +20,26 @@ use Plugin\RedirectManager\Backend\Models\RedirectRule;
 final class RedirectMatch
 {
     /**
-     * @param  RedirectRule|null  $rule     the rule that matched the request; the one to count
-     * @param  string|null        $target   where to send the visitor, or null if nowhere
-     * @param  int                $code     HTTP status to answer with
-     * @param  array<int,string>  $walked   the paths passed through, in order
-     * @param  string|null        $problem  a RedirectIssue::TYPE_* the caller should record
+     * `$destination` is the same answer in **stored** form — a bare path for somewhere on this
+     * site, an absolute URL for somewhere else. `$target` is that made followable. Both are
+     * here because the caller has one thing the matcher does not: the locale the request
+     * arrived under, which core strips before asking and which has to go back on the front of
+     * an internal destination. Telling the two apart by looking at `$target` is not possible —
+     * `url()` makes every internal path absolute — which is the same trap `resolvedTo()` and
+     * `target()` are kept separate for.
+     *
+     * `$usedRuleIds` is every rule the walk went through, first to last. The first one is the
+     * one that matched the request and the one whose code is answered with — but a chain is
+     * *served* by all of them, and counting only the first left every rule in the middle
+     * reporting zero hits on a screen that offers to tidy away rules nobody uses.
+     *
+     * @param  RedirectRule|null  $rule         the rule that matched the request; the one to count
+     * @param  string|null        $target       where to send the visitor, or null if nowhere
+     * @param  int                $code         HTTP status to answer with
+     * @param  array<int,string>  $walked       the paths passed through, in order
+     * @param  string|null        $problem      a RedirectIssue::TYPE_* the caller should record
+     * @param  string|null        $destination  the same answer as stored, before `url()`
+     * @param  array<int,int>     $usedRuleIds  every rule the walk went through, in order
      */
     public function __construct(
         public readonly ?RedirectRule $rule = null,
@@ -32,7 +47,15 @@ final class RedirectMatch
         public readonly int $code = 301,
         public readonly array $walked = [],
         public readonly ?string $problem = null,
+        public readonly ?string $destination = null,
+        public readonly array $usedRuleIds = [],
     ) {
+    }
+
+    /** Whether the destination points at another host, where this site's locale means nothing. */
+    public function isOffsite(): bool
+    {
+        return $this->destination !== null && RedirectRule::isAbsoluteUrl($this->destination);
     }
 
     /** Whether there is somewhere to send the visitor. */

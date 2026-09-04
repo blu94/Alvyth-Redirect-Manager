@@ -12,6 +12,12 @@
           "label": "Path"
         },
         {
+          "ui": { "type": "field", "cols": { "cols": 12, "md": 4 }, "icon": "tabler-question-mark", "color": "warning" },
+          "type": "display",
+          "key": "query",
+          "label": "Query it arrived with"
+        },
+        {
           "ui": { "type": "field", "cols": { "cols": 12, "md": 4 }, "icon": "tabler-alert-triangle", "color": "error" },
           "type": "display",
           "key": "kind",
@@ -72,14 +78,14 @@
             },
             "action": "navigate",
             "label": "Redirect to the best match",
-            "to": "/module/redirect-rules/create?from_path={path}&to_path={top_suggestion}"
+            "to": "/module/redirect-rules/create?from_path={path}&query_match={query}&to_path={top_suggestion}"
           },
           {
             "key": "redirect-elsewhere",
             "ui": { "type": "button", "color": "info", "variant": "tonal", "icon": "tabler-arrow-forward" },
             "action": "navigate",
             "label": "Redirect somewhere else",
-            "to": "/module/redirect-rules/create?from_path={path}"
+            "to": "/module/redirect-rules/create?from_path={path}&query_match={query}"
           },
           {
             "key": "resolve",

@@ -2,6 +2,7 @@
 
 namespace Plugin\RedirectManager\Backend\Repositories;
 
+use Illuminate\Validation\ValidationException;
 use Plugin\RedirectManager\Backend\Models\RedirectIssue;
 use Plugin\RedirectManager\Backend\Models\RedirectRule;
 use Plugin\RedirectManager\Backend\Pages\OverviewPage;
@@ -9,7 +10,6 @@ use Plugin\RedirectManager\Backend\Pages\SettingsPage;
 use Plugin\RedirectManager\Backend\Pages\TransferPage;
 use Plugin\RedirectManager\Backend\Services\IssueRecorder;
 use Plugin\RedirectManager\Backend\Services\RedirectMatcher;
-use RuntimeException;
 
 /**
  * The rules module: list, create, edit, delete, plus the custom pages hanging off it.
@@ -176,7 +176,8 @@ class RedirectRuleRepository
         // The form cannot express this — no validation rule can require one field only when
         // another is blank — which is why it is checked here rather than in `form.json`.
         if (trim($from) === '' && trim($query) === '') {
-            throw new RuntimeException(
+            $this->refuse(
+                'from_path',
                 'A rule needs something to match on. Give it a path, or leave the path empty and '
                 . 'name a query — for example a query of "p=123" to catch an old /?p=123 link. '
                 . 'A rule with neither would redirect your home page.'
@@ -185,7 +186,8 @@ class RedirectRuleRepository
 
         if ($matchType === RedirectRule::MATCH_REGEX
             && @preg_match('#' . str_replace('#', '\#', $from) . '#u', '') === false) {
-            throw new RuntimeException(
+            $this->refuse(
+                'from_path',
                 'That pattern is not a valid regular expression, so the rule would never match '
                 . 'anything: ' . preg_last_error_msg() . '. Write the pattern without delimiters — '
                 . 'for example blog/(\d+)/(.+) rather than /blog/(\d+)/(.+)/.'
@@ -233,7 +235,7 @@ class RedirectRuleRepository
             return;
         }
 
-        throw new RuntimeException($clash->trashed()
+        $this->refuse('from_path', $clash->trashed()
             ? 'A deleted rule for that path still exists, so this edit would collide with it. '
                 . 'Create the rule again from the Rules screen instead — that revives the deleted '
                 . 'one — or import the replacement from Import & Export.'
@@ -243,21 +245,44 @@ class RedirectRuleRepository
     }
 
     /**
+     * Refuse a rule, on the field that caused it.
+     *
+     * **A `ValidationException`, not a `RuntimeException`.** Every refusal here describes the
+     * operator's input — a duplicate, an uncompilable pattern, a rule with nothing to match on —
+     * and all three used to arrive as **HTTP 500** with the explanation in the body, because
+     * `GenericModuleController` caught every `Throwable` alike. A 500 is what monitoring pages
+     * someone for and what an error budget counts, so a screen refusing bad input a hundred
+     * times a day looked like a hundred outages.
+     *
+     * It could not simply be swapped, either: the same catch turned a `ValidationException`
+     * into a 500 whose body read only "The given data was invalid." Core now lets a client
+     * fault out at its own status, which is what makes this possible — and what puts the
+     * message on the field instead of in a toast.
+     */
+    private function refuse(string $field, string $message): never
+    {
+        throw ValidationException::withMessages([$field => $message]);
+    }
+
+    /**
      * Housekeeping after a rule changes.
      *
      * Two things. The cached pattern set is dropped, because an operator who edits a rule and
      * then tests it must not be told it works when what they are seeing is the previous
-     * version. And any open issue for the path the rule now covers is closed, because the
-     * whole point of the Broken Links screen is that fixing something takes it off the list —
-     * a list that only grows is one an operator stops reading.
+     * version. And every open issue the rule now covers is closed, because the whole point of
+     * the Broken Links screen is that fixing something takes it off the list — a list that only
+     * grows is one an operator stops reading.
+     *
+     * **Whatever kind of rule it is.** This ran only for an exact rule, so an operator who
+     * moved a whole section with one prefix rule — the case prefix rules exist for — left every
+     * path under it open. The cache is dropped first, deliberately: the sweep asks the matcher,
+     * and the matcher must be answering with the rule that was just saved.
      */
     private function afterWrite(RedirectRule $rule): void
     {
         RedirectMatcher::forget();
 
-        if ($rule->match_type === RedirectRule::MATCH_EXACT) {
-            $this->recorder->resolveFor($rule->from_path);
-        }
+        $this->recorder->resolveCoveredBy($rule);
     }
 
     /**
@@ -305,20 +330,20 @@ class RedirectRuleRepository
                     continue;
                 }
 
-                $match = $matcher->resolve($rule->from_path);
+                $match = $matcher->resolve($rule->from_path, (string) $rule->query_match);
 
                 if ($match->problem === RedirectIssue::TYPE_LOOP) {
                     $found['loops']++;
                     $this->recorder->record(RedirectIssue::TYPE_LOOP, $rule->from_path, [
                         'walked' => $match->walked,
                         'rule'   => $rule->id,
-                    ]);
+                    ], (string) $rule->query_match);
                 } elseif ($match->problem === RedirectIssue::TYPE_CHAIN) {
                     $found['chains']++;
                     $this->recorder->record(RedirectIssue::TYPE_CHAIN, $rule->from_path, [
                         'walked' => $match->walked,
                         'rule'   => $rule->id,
-                    ]);
+                    ], (string) $rule->query_match);
                 }
             }
         });

@@ -3,11 +3,11 @@
 namespace Plugin\RedirectManager\Tests;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\Test;
 use Plugin\RedirectManager\Backend\Models\RedirectIssue;
 use Plugin\RedirectManager\Backend\Models\RedirectRule;
 use Plugin\RedirectManager\Backend\Repositories\RedirectRuleRepository;
-use RuntimeException;
 
 require_once __DIR__ . '/autoload.php';
 
@@ -98,16 +98,27 @@ class RedirectRuleLifecycleTest extends TestCase
         $this->assertSame($rule->id, $revived->id);
     }
 
+    /**
+     * A refusal describes the operator's input, so it arrives as a validation failure on the
+     * field that caused it — a 422 with a message beside **From path** — rather than the 500 it
+     * used to be, which said only that something on the server had gone wrong.
+     */
     #[Test]
     public function a_live_duplicate_is_still_refused(): void
     {
         // Reviving must not become "silently overwrite the rule you already have".
         $this->repo()->create($this->attributes());
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('There is already a rule for that path');
-
-        $this->repo()->create($this->attributes(['to_path' => 'other']));
+        try {
+            $this->repo()->create($this->attributes(['to_path' => 'other']));
+            $this->fail('A duplicate rule should have been refused.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('from_path', $e->errors());
+            $this->assertStringContainsString(
+                'There is already a rule for that path',
+                $e->errors()['from_path'][0]
+            );
+        }
     }
 
     #[Test]
@@ -124,13 +135,18 @@ class RedirectRuleLifecycleTest extends TestCase
     #[Test]
     public function an_uncompilable_pattern_is_refused_with_a_readable_message(): void
     {
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('not a valid regular expression');
-
-        $this->repo()->create($this->attributes([
-            'match_type' => RedirectRule::MATCH_REGEX,
-            'from_path'  => '^products/((((',
-        ]));
+        try {
+            $this->repo()->create($this->attributes([
+                'match_type' => RedirectRule::MATCH_REGEX,
+                'from_path'  => '^products/((((',
+            ]));
+            $this->fail('A pattern that cannot compile should have been refused.');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString(
+                'not a valid regular expression',
+                $e->errors()['from_path'][0]
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -165,16 +181,41 @@ class RedirectRuleLifecycleTest extends TestCase
         $this->assertNull($this->issue('gone')->rule());
     }
 
+    /**
+     * **This asserted the opposite until the screen started asking the matcher.**
+     *
+     * The old comment here read "a prefix rule covers everything *under* the path, not the path
+     * itself", and the lookup it guarded was written to match. `RedirectMatcher::matchPrefix()`
+     * has always disagreed, deliberately and in writing: `$path === $from` returns a match,
+     * because moving `blog/*` while leaving `blog` behind would strand the index page.
+     *
+     * So a visitor asking for `/gone` was redirected while this screen reported that nothing
+     * fixed it — the two halves held different beliefs about the same rule, and the belief in
+     * the screen was the wrong one. Asking the matcher settles it in the matcher's favour.
+     */
     #[Test]
-    public function a_prefix_rule_sharing_the_path_is_not_offered_as_the_fix(): void
+    public function a_prefix_rule_covers_the_branch_itself_and_is_offered_as_the_fix(): void
     {
-        // A prefix rule covers everything *under* the path, not the path itself.
+        $rule = $this->repo()->create($this->attributes([
+            'match_type' => RedirectRule::MATCH_PREFIX,
+            'from_path'  => 'gone',
+            'to_path'    => 'elsewhere/$1',
+        ]));
+
+        $this->assertSame($rule->id, $this->issue('gone')->rule()?->id);
+    }
+
+    #[Test]
+    public function a_prefix_rule_is_not_offered_for_a_path_it_does_not_reach(): void
+    {
         $this->repo()->create($this->attributes([
             'match_type' => RedirectRule::MATCH_PREFIX,
             'from_path'  => 'gone',
             'to_path'    => 'elsewhere/$1',
         ]));
 
-        $this->assertNull($this->issue('gone')->rule());
+        // Shares the first four characters and nothing else: a prefix rule is about path
+        // segments, not about string prefixes.
+        $this->assertNull($this->issue('gone-forever')->rule());
     }
 }

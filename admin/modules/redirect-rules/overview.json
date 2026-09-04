@@ -45,6 +45,12 @@
         "type": "display",
         "key": "rules_total",
         "label": "Rules in total"
+      },
+      {
+        "ui": { "type": "field", "cols": 12, "icon": "tabler-notebook", "color": "secondary" },
+        "type": "display",
+        "key": "recording_state",
+        "label": "Broken links"
       }
     ]
   },
@@ -87,7 +93,7 @@
   {
     "ui": { "type": "section", "icon": "tabler-chart-line", "cols": 12 },
     "name": "The last twelve months",
-    "subtitle": "New dead paths falling away while redirects keep being served is what a finished migration looks like.",
+    "subtitle": "How many of your rules were used at all in each month, against the dead paths found that month. New dead paths falling away while old URLs are still being followed is what a finished migration looks like.",
     "elements": [
       {
         "ui": { "type": "field", "cols": 12 },

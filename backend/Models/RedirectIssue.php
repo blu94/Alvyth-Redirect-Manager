@@ -3,6 +3,7 @@
 namespace Plugin\RedirectManager\Backend\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Plugin\RedirectManager\Backend\Services\RedirectMatcher;
 
 /**
  * A recurring, path-scoped problem an operator should fix.
@@ -41,6 +42,7 @@ class RedirectIssue extends Model
     protected $fillable = [
         'type',
         'path',
+        'query',
         'context',
         'hits',
         'last_seen_at',
@@ -76,6 +78,23 @@ class RedirectIssue extends Model
     }
 
     /**
+     * The path, with the front page shown as `/` rather than as nothing.
+     *
+     * A root miss is stored with an empty path and its query beside it — `/?p=999` is a
+     * WordPress permalink for a post, not the home page — and empty is the shape the matcher
+     * wants. The cost was a blank cell on a screen whose whole job is to name addresses.
+     *
+     * Safe as an accessor for the same reason `RedirectRule::getToPathAttribute()` is: every
+     * consumer normalises before using the value, and `RedirectRule::normalisePath('/')` trims
+     * straight back to `''`. Sorting and searching are unaffected — both run against the real
+     * column in SQL and never see this — and nothing writes through it.
+     */
+    public function getPathAttribute(?string $value): string
+    {
+        return (string) $value === '' ? '/' : (string) $value;
+    }
+
+    /**
      * The list renders a status chip and "resolved" is a boolean. Mapping it to a word here
      * keeps the schema's `type: status` cell generic instead of teaching it about booleans.
      */
@@ -104,27 +123,30 @@ class RedirectIssue extends Model
     }
 
     /**
-     * The rule that would fix this path, if one exists.
+     * The rule that fixes this path, if one does.
      *
-     * Joined by the path string rather than a foreign key: a rule can be created or removed
-     * independently of the 404 that suggested it, and a key would either block that or leave
-     * a dangling reference.
+     * Not a relationship: a rule can be created or removed independently of the 404 that
+     * suggested it, and a foreign key would either block that or leave a dangling reference.
+     *
+     * **Answered by the matcher, not by a lookup of this screen's own.** It used to find an
+     * active *exact* rule whose `from_path` equalled the path, which is right about one of the
+     * three kinds of rule the package sells and silently wrong about the other two: a prefix
+     * rule that moved a whole branch, or a pattern that caught a family of old permalinks,
+     * fixed the visitor's experience while this screen went on reporting that nothing fixed it.
+     *
+     * The narrowing was itself a fix — an unfiltered `where('from_path', ...)` matched a prefix
+     * rule that covers everything *under* a path but not the path itself, a disabled rule that
+     * fires for nobody, and a regex whose `from_path` is stored verbatim. All three were wrong
+     * answers. Asking the matcher answers all of them correctly, because it is the same walk
+     * the visitor gets.
      */
     public function rule(): ?RedirectRule
     {
-        // Narrowed to an **active exact** rule, because the question this answers is "is this
-        // broken path already fixed?" and only those two conditions make the answer yes.
-        //
-        // An unfiltered `where('from_path', ...)` matched three things it should not. A
-        // prefix rule sharing the path covers everything *under* it, not the path itself. A
-        // disabled rule fires for nobody. And a regex rule's `from_path` is stored verbatim
-        // rather than normalised, so matching it against a normalised path is a coincidence
-        // when it happens at all. Each one showed the operator a broken link as already
-        // handled, which is the one wrong answer this screen must not give.
-        return RedirectRule::query()
-            ->where('match_type', RedirectRule::MATCH_EXACT)
-            ->where('status', RedirectRule::STATUS_ACTIVE)
-            ->where('from_path', RedirectRule::normalisePath($this->path))
-            ->first();
+        // The query is handed over too. A rule for the site root only fires for its own query,
+        // so asking about the path alone would report that nothing fixes the one address this
+        // package raised its core floor to support.
+        $match = app(RedirectMatcher::class)->resolve($this->path, (string) $this->query);
+
+        return $match->hasTarget() ? $match->rule : null;
     }
 }
