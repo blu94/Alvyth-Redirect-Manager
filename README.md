@@ -1,11 +1,11 @@
 # Redirect Manager
 
-Redirect and broken-link management for [Ovynt](https://github.com/blu94/Ovynt) — the rules
+Redirect and broken-link management for [Alvyth](https://github.com/blu94/Alvyth) — the rules
 that keep old URLs working after a site moves, and the evidence that tells you which ones
 still need writing.
 
 This is the extracted, extended replacement for the redirects module that used to ship inside
-Ovynt itself. It is a plugin, so it survives a theme change and is updated on its own release
+Alvyth itself. It is a plugin, so it survives a theme change and is updated on its own release
 cycle.
 
 ---
@@ -30,7 +30,7 @@ leading slash is stripped, so the rule that catches it is an empty `From path` p
 `p=123`. A rule with neither is refused: it would match the home page however it was reached
 and send every visitor away from it.
 
-> This needs a build of Ovynt whose `ThemeController` dispatches `PathNotResolved` for the root
+> This needs a build of Alvyth whose `ThemeController` dispatches `PathNotResolved` for the root
 > when the request carries a query string. `/` always resolves to the home page, so nothing used
 > to ask whether the address had moved and a root rule could never fire however it was written.
 > That build is **1.3.0**, and the manifest requires it — on anything older the package is
@@ -75,7 +75,7 @@ not. Another tool's column names are recognised (`source`, `target`, `old_url`, 
 ## What it does not do
 
 - **No file upload or download.** Import and export are text areas. A plugin registers no
-  routes, so everything it serves goes through Ovynt's generic module endpoints, and the one
+  routes, so everything it serves goes through Alvyth's generic module endpoints, and the one
   serving a custom page always wraps its return value in `response()->json()` — there is no
   way for a package to stream a file back, and no `file` field type to send one up. Pasting is
   honest about what it is; the alternative was a download button producing a `.csv` full of
@@ -92,10 +92,10 @@ not. Another tool's column names are recognised (`source`, `target`, `old_url`, 
 
 ## Requirements
 
-Ovynt **>= 1.4.1, < 2.0.0** — the constraint `plugin.json` declares, so an older build is
+Alvyth **>= 1.4.1, < 2.0.0** — the constraint `plugin.json` declares, so an older build is
 refused at install rather than left to manage rules that would never fire.
 
-> **Why 1.4.1 and not 1.3.0.** Four things this version does have a half that lives in Ovynt
+> **Why 1.4.1 and not 1.3.0.** Four things this version does have a half that lives in Alvyth
 > itself: the query-string encoding that stops a recorded 404 seeding the rule form, the locale
 > carried on `PathNotResolved`, the per-page permission verb behind **Prune history**, and
 > letting a refusal answer as a refusal rather than a 500. On an older core each one silently
@@ -103,7 +103,7 @@ refused at install rather than left to manage rules that would never fire.
 > open-redirect path is back with nothing to say so. Refusing at install is the only version of
 > that an operator can act on.
 
-The seam this plugin hangs on is **`App\Events\PathNotResolved`**: Ovynt's storefront controller
+The seam this plugin hangs on is **`App\Events\PathNotResolved`**: Alvyth's storefront controller
 dispatches it after failing to resolve a page, and a listener answers with a destination. A build
 that does not dispatch it manages rules perfectly well and **serves no redirects**, because
 nothing ever asks it to.
@@ -166,7 +166,7 @@ plugin's data" when uninstalling.
 | `redirect_manager_issues` | 404s, loops and chains — one row per address per kind |
 | `redirect_manager_settings` | one row: logging, suggestions, ignore patterns, retention |
 
-> **Uninstalling with data purge is genuinely destructive here.** Ovynt no longer ships a
+> **Uninstalling with data purge is genuinely destructive here.** Alvyth no longer ships a
 > redirects module, so there is nothing to fall back to — every rule goes and every old URL
 > starts 404ing again.
 
@@ -174,10 +174,10 @@ plugin's data" when uninstalling.
 
 ## Licence
 
-**Free of charge, not open source.** Copyright (c) 2026 Ovynt Labs — see [LICENSE](LICENSE).
+**Free of charge, not open source.** Copyright (c) 2026 Alvyth Labs — see [LICENSE](LICENSE).
 
-You may install and use this plugin on any Ovynt installation you operate, at no cost and with
+You may install and use this plugin on any Alvyth installation you operate, at no cost and with
 no licence key. You may not resell, redistribute or republish it, on its own or bundled with
-anything else. "Free" is the price; the rights stay with Ovynt Labs. How free and paid Ovynt
+anything else. "Free" is the price; the rights stay with Alvyth Labs. How free and paid Alvyth
 packages differ is set out in
-[LICENSING.md](https://github.com/blu94/Ovynt/blob/main/LICENSING.md).
+[LICENSING.md](https://github.com/blu94/Alvyth/blob/main/LICENSING.md).

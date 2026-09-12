@@ -19,7 +19,7 @@ use Plugin\RedirectManager\Backend\Services\RedirectMatcher;
  * `file` field type to send one up. Pasting works, costs nothing, and is honest about what it
  * is; the alternative was a download button that produced a `.csv` full of JSON.
  *
- * Ovynt's own import pipeline is not an option either: `ImporterRegistry::DRIVERS` is a
+ * Alvyth's own import pipeline is not an option either: `ImporterRegistry::DRIVERS` is a
  * private constant, so a plugin cannot add a resource to it.
  */
 class TransferPage

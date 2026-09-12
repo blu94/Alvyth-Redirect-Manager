@@ -10,7 +10,7 @@ namespace Plugin\RedirectManager\Backend\Support;
  * dead URL, the count behind the recording ceiling. None of it means anything in another schema.
  *
  * This repository's own dev container is the case that proves it rather than a hypothetical:
- * `ovynt` and `ovynt_test` share a Redis, so a suite run could hand the shop another database's
+ * `alvyth` and `alvyth_test` share a Redis, so a suite run could hand the shop another database's
  * rules and the shop could hand the suite its own. `MULTISITE-SPEC.md` §13 names exactly this
  * shape — `active_theme_config` under a flat key — as *"the negative precedent … the first thing
  * multi-site falsifies"*, while §4 makes redirect identity `(site_id, locale, slug)`.

@@ -49,7 +49,7 @@ class PackageManifestTest extends TestCase
     }
 
     /**
-     * Four things this package does have a half that lives in Ovynt itself, and none of them
+     * Four things this package does have a half that lives in Alvyth itself, and none of them
      * announce their absence:
      *
      * - a recorded 404 seeding the rule form is only safe because core encodes a substituted
@@ -92,14 +92,14 @@ class PackageManifestTest extends TestCase
      * the release explicitly: `assertFalse($manifest->satisfiedBy('1.4.0'))`. A lower bound can
      * only be pinned by stating it.
      *
-     * Two assertions, opposite mistakes, both worth keeping. (Caught by ovynt-c3, who read this
+     * Two assertions, opposite mistakes, both worth keeping. (Caught by alvyth-c3, who read this
      * rationale before copying it into another package rather than after.)
      */
     #[Test]
     public function the_core_this_runs_on_satisfies_the_floor_the_manifest_declares(): void
     {
         $this->assertTrue(
-            $this->manifest()->satisfiedBy((string) config('ovynt.version')),
+            $this->manifest()->satisfiedBy((string) config('alvyth.version')),
             'The declared floor is ahead of the core in this tree, so the package would refuse to install on it.'
         );
     }

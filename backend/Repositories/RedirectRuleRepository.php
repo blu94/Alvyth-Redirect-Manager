@@ -14,7 +14,7 @@ use Plugin\RedirectManager\Backend\Services\RedirectMatcher;
 /**
  * The rules module: list, create, edit, delete, plus the custom pages hanging off it.
  *
- * There is no base class and no interface — Ovynt resolves this by name and calls the methods
+ * There is no base class and no interface — Alvyth resolves this by name and calls the methods
  * below. Anything extra here is the plugin's own business.
  */
 class RedirectRuleRepository

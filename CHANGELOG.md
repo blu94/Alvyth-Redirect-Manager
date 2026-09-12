@@ -3,7 +3,7 @@
 All notable changes to Redirect Manager are recorded here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions follow
 [semantic versioning](https://semver.org/spec/v2.0.0.html) — comparable with `version_compare`,
-which is what Ovynt's updater reads them with.
+which is what Alvyth's updater reads them with.
 
 ---
 
@@ -11,7 +11,7 @@ which is what Ovynt's updater reads them with.
 
 ### Requires
 
-- **Ovynt >= 1.4.1.** Four fixes below have a half that lives in Ovynt itself: the query-string
+- **Alvyth >= 1.4.1.** Four fixes below have a half that lives in Alvyth itself: the query-string
   encoding behind the seeded-form defect, the locale carried on `PathNotResolved`, the per-page
   permission verb, and letting a client fault out of `GenericModuleController` at its own
   status. On an older core each one silently reverts to the defect it replaced — the package
@@ -128,7 +128,7 @@ which is what Ovynt's updater reads them with.
 
 ## [1.1.0]
 
-- A rule can match the site root, so `/?p=123` can finally redirect. Requires Ovynt 1.3.0, whose
+- A rule can match the site root, so `/?p=123` can finally redirect. Requires Alvyth 1.3.0, whose
   `ThemeController` dispatches `PathNotResolved` for the root when the request carries a query.
 - `/` is kept as a destination instead of being lost on save.
 - Re-creating a deleted rule revives it rather than colliding with a soft-deleted row the
@@ -138,5 +138,5 @@ which is what Ovynt's updater reads them with.
 
 ## [1.0.0]
 
-- First release. Extracted from Ovynt core, where redirects were two built-in screens backed by
+- First release. Extracted from Alvyth core, where redirects were two built-in screens backed by
   a `redirects` table read directly by `ThemeController`.

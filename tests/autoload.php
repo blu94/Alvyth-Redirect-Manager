@@ -4,7 +4,7 @@
 |--------------------------------------------------------------------------
 | Make this package's classes loadable from its own tests
 |--------------------------------------------------------------------------
-| Ovynt resolves `Plugin\RedirectManager\…` through a runtime autoloader in
+| Alvyth resolves `Plugin\RedirectManager\…` through a runtime autoloader in
 | `PluginServiceProvider`, keyed on the installed set read from the `plugins`
 | table — one of the three independent gates that stop a disabled plugin from
 | running. It is a runtime autoloader rather than a composer PSR-4 entry
@@ -22,7 +22,7 @@
 | A package's own tests need two things: its classes on the autoloader and
 | its tables in the schema. Neither is a registry entry, so the dependency is
 | removed here rather than worked around outside. The tables still come from
-| `plugin:import --enable` against `ovynt_test`, which survives the run — only
+| `plugin:import --enable` against `alvyth_test`, which survives the run — only
 | the row is cleared.
 |
 | Mirrors the provider's mapping exactly, including lowercasing the first

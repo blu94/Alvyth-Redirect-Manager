@@ -4,7 +4,7 @@
   "name": "Redirect Manager",
   "version": "1.2.0",
   "author": {
-    "name": "Ovynt Labs"
+    "name": "Alvyth Labs"
   },
   "description": "Redirect and broken-link management — exact, wildcard and query-string rules, recorded 404s with suggested destinations, and loop detection.",
   "long_description": "Redirect Manager keeps old URLs working after a site moves, and tells you which ones still need attention.\n\nA rule sends one path somewhere else. Most rules are exact — the old slug of a page you renamed — and those are matched by a single indexed lookup, so they cost a visitor nothing. When an exact rule is not enough there are two more kinds. A prefix rule moves a whole branch at once, so an entire blog can change its base path with one rule instead of four hundred. A pattern rule matches on a regular expression and can carry captured fragments through to the destination. Rules can also match on the query string, which is what a migration needs when the old links named a page in the query, like /?p=123, rather than with a readable slug.\n\nRules can be given a priority, so when two of them could match the same path you decide which wins rather than discovering it. They can be given a start and an end date, which is what a campaign URL wants: it points somewhere for a fortnight and then stops, without anyone having to remember to switch it off.\n\nBroken Links is the other half, and it is the half that tells you what to do next. Every path that resolves to nothing is recorded once, with a count and the page that linked to it, so a crawler hammering one dead URL is one row saying so rather than ten thousand rows burying everything else. For each one the plugin looks through your existing pages, products and posts for the closest match and offers it, so fixing a broken link is usually a matter of agreeing with the suggestion.\n\nIt also watches the rules themselves. A rule that points at a path another rule redirects away from makes a visitor wait for two round trips; a set of rules that points in a circle never lands anywhere at all. Both are detected, both are reported on the same screen as everything else, and a chain is followed through to its real destination so the visitor gets there in one hop while you decide what to tidy.\n\nRules import and export as CSV, which is how a migration actually arrives — as a file somebody exported from the site being replaced.",
@@ -12,7 +12,7 @@
   "banner": "assets/banner.png",
   "thumbnail": "assets/thumbnail.png",
   "requires": {
-    "ovynt": ">=1.4.1 <2.0.0"
+    "alvyth": ">=1.4.1 <2.0.0"
   },
   "reach": [
     "admin",
